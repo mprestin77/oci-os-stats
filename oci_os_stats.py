@@ -2,13 +2,14 @@
 """Read-only OCI Object Storage statistics. Python 3.9+; pip install oci.
 
 Examples:
-  python oci_os_stats.py --per-compartment --per-bucket
-  python oci_os_stats.py --compartment-id OCID --include-subcompartments --per-bucket
+  python oci_os_stats.py --regions us-ashburn-1 --per-compartment --per-bucket
+  python oci_os_stats.py --regions us-ashburn-1 --compartment-id OCID --include-subcompartments --per-bucket
   python oci_os_stats.py --regions us-ashburn-1 --per-bucket --json
-  python oci_os_stats.py --per-compartment --per-bucket --csv stats.csv
+  python oci_os_stats.py --regions us-ashburn-1 --per-compartment --per-bucket --csv stats.csv
 
 Uses ~/.oci/config (API-key authentication). Defaults: all accessible active
-compartments, subscribed regions, last complete hour ending 5 minutes ago.
+compartments, explicitly selected regions, one-hour window ending 5 minutes ago.
+--regions is required; subscribed regions are never discovered automatically.
 Requests/sec is a window average, not peak IOPS. Missing metrics remain null.
 Compartment names use parent/child paths. Measured zeros display as 0.
 Buckets starting with oci-logs._flowlogs are excluded from reports and totals.
@@ -17,7 +18,7 @@ No logging configuration is changed. No byte-throughput metric is assumed.
 Read permissions needed across your selected scope (replace StatsReaders):
   Allow group StatsReaders to inspect compartments in tenancy
   Allow group StatsReaders to read buckets in tenancy
-  Allow group StatsReaders to read objectstorage-namespaces in tenancy
+  Allow group StatsReaders to {OBJECTSTORAGE_NAMESPACE_READ} in tenancy
   Allow group StatsReaders to read metrics in tenancy
 
 Averages use the whole selected wall-clock window. Absent streams are N/A;
@@ -53,7 +54,7 @@ def arguments():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('--profile', default='DEFAULT')
     p.add_argument('--config-file', default='~/.oci/config')
-    p.add_argument('--regions', nargs='+', help='Default: every subscribed region')
+    p.add_argument('--regions', nargs='+', required=True, help='Required: one or more explicit OCI regions; no subscription discovery')
     p.add_argument('--compartment-id', help='Default: all active accessible compartments')
     p.add_argument('--include-subcompartments', action='store_true', help='Include descendants of --compartment-id in collection')
     p.add_argument('--per-compartment', action='store_true', help='Print direct totals per compartment')
@@ -234,10 +235,7 @@ def main():
     selected = set(names)
     if a.compartment_id:
         selected = descendants(a.compartment_id, parents) if a.include_subcompartments else {a.compartment_id}
-    regions = a.regions or [r.region_name for r in identity.list_region_subscriptions(tenant).data
-                            if r.status == 'READY']
-    if not regions:
-        sys.exit('No regions selected')
+    regions = list(dict.fromkeys(a.regions))
     records = {}
 
     def bucket(region, cid, bid, bname):
@@ -255,7 +253,7 @@ def main():
                                 'bucket': bname, 'metrics': {}}
         return records[key]
 
-    for region in dict.fromkeys(regions):
+    for region in regions:
         print('Collecting ' + region, file=sys.stderr)
         monitor = client(oci.monitoring.MonitoringClient, region)
         storage = client(oci.object_storage.ObjectStorageClient, region)

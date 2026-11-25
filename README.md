@@ -1,6 +1,6 @@
 # OCI Object Storage Statistics
 
-A read-only Python utility for reporting OCI Object Storage request activity across accessible compartments and subscribed regions. Print cumulative totals for the selected scope, add reports per compartment or bucket, and export the results as JSON or CSV.
+A read-only Python utility for reporting OCI Object Storage request activity across accessible compartments in explicitly selected regions. Print cumulative totals for the selected scope, add reports per compartment or bucket, and export the results as JSON or CSV.
 
 The script uses OCI Monitoring metrics. It does not download objects, enable access logging, or change OCI resources.
 
@@ -20,16 +20,16 @@ By default, credentials are loaded from the `DEFAULT` profile in `~/.oci/config`
 
 ## Quick start
 
-Print the cumulative report for all accessible active compartments, including the root compartment, across all subscribed regions with `READY` status:
+Print the cumulative report for all accessible active compartments, including the root compartment, in the explicitly selected region:
 
 ```bash
-python3 oci_os_stats.py
+python3 oci_os_stats.py --regions us-ashburn-1
 ```
 
 Add separate reports per compartment and per bucket:
 
 ```bash
-python3 oci_os_stats.py --per-compartment --per-bucket
+python3 oci_os_stats.py --regions us-ashburn-1 --per-compartment --per-bucket
 ```
 
 The default window is one hour, ending five minutes before the current time and rounded down to a whole minute. The delay allows time for metric arrival; it is not a delivery guarantee.
@@ -46,34 +46,38 @@ The cumulative report is always included. Combine the flags to print multiple re
 
 ```bash
 # Direct totals per compartment
-python3 oci_os_stats.py --per-compartment
+python3 oci_os_stats.py --regions us-ashburn-1 --per-compartment
 
 # Individual buckets
-python3 oci_os_stats.py --per-bucket
+python3 oci_os_stats.py --regions us-ashburn-1 --per-bucket
 
 # Parent totals include collected child compartments
-python3 oci_os_stats.py --per-compartment --rollup-compartments
+python3 oci_os_stats.py --regions us-ashburn-1 --per-compartment --rollup-compartments
 ```
 
 **Do not sum rolled-up compartment rows:** parent and child rows overlap. The cumulative report counts each collected bucket once.
 
 ## Select compartments and regions
 
+**`--regions` is mandatory.** Supply one or more OCI region identifiers on every collection command. Omitting it, or supplying it without a value, exits with an argument error before authentication or OCI API calls. `--help` works without regions. Duplicate region arguments are collected once.
+
+The script never calls `ListRegionSubscriptions` and never automatically scans all subscribed regions. The caller does not need `TENANCY_INSPECT` / `inspect tenancies` for region discovery. Compartment discovery is still performed, and clients use the region configured in your OCI profile for the initial IAM compartment lookup; Object Storage and Monitoring collection run only in your requested regions.
+
 Without `--compartment-id`, the script collects all accessible active compartments plus the tenancy root. With `--compartment-id`, it collects only that compartment unless `--include-subcompartments` is supplied.
 
 ```bash
 # One compartment only
-python3 oci_os_stats.py \
+python3 oci_os_stats.py --regions us-ashburn-1 \
   --compartment-id ocid1.compartment.oc1..REPLACE_ME \
   --per-bucket
 
 # A compartment and all accessible active descendants
-python3 oci_os_stats.py \
+python3 oci_os_stats.py --regions us-ashburn-1 \
   --compartment-id ocid1.compartment.oc1..REPLACE_ME \
   --include-subcompartments \
   --per-compartment --rollup-compartments --per-bucket
 
-# Restrict collection to named regions
+# Collect from two explicitly named regions
 python3 oci_os_stats.py \
   --regions us-ashburn-1 us-phoenix-1 \
   --per-compartment --per-bucket
@@ -87,10 +91,10 @@ Compartment names display as paths such as `Production/Analytics`. A report is t
 
 ```bash
 # Previous 24 hours, ending five minutes ago
-python3 oci_os_stats.py --hours 24 --per-bucket
+python3 oci_os_stats.py --regions us-ashburn-1 --hours 24 --per-bucket
 
 # Explicit UTC window; replace dates as needed
-python3 oci_os_stats.py \
+python3 oci_os_stats.py --regions us-ashburn-1 \
   --start 2026-11-24T00:00:00Z \
   --end 2026-11-25T00:00:00Z \
   --per-compartment --per-bucket
@@ -134,13 +138,13 @@ Oracle notes that empty buckets emit no metrics. Missing time samples in an exis
 
 ```bash
 # Numeric operation counts and coverage metadata
-python3 oci_os_stats.py --per-compartment --per-bucket --json > stats.json
+python3 oci_os_stats.py --regions us-ashburn-1 --per-compartment --per-bucket --json > stats.json
 
 # Terminal tables plus a CSV export
-python3 oci_os_stats.py --per-compartment --per-bucket --csv stats.csv
+python3 oci_os_stats.py --regions us-ashburn-1 --per-compartment --per-bucket --csv stats.csv
 
 # Produce both formats
-python3 oci_os_stats.py --per-compartment --per-bucket \
+python3 oci_os_stats.py --regions us-ashburn-1 --per-compartment --per-bucket \
   --json --csv stats.csv > stats.json
 ```
 
@@ -182,7 +186,6 @@ For API-key authentication, an administrator can create a policy in the tenancy 
 
 ```text
 Allow group StatsReaders to inspect compartments in tenancy
-Allow group StatsReaders to inspect tenancies in tenancy
 Allow group StatsReaders to read buckets in tenancy
 Allow group StatsReaders to {OBJECTSTORAGE_NAMESPACE_READ} in tenancy
 Allow group StatsReaders to read metrics in tenancy
@@ -193,7 +196,6 @@ For identity-domain groups, use your domain-qualified group name, for example `A
 | Grant | API operations used by this script | When needed |
 | --- | --- | --- |
 | `inspect compartments in tenancy` | `ListCompartments` with subtree discovery | Compartment inventory and parent/child paths. Discovery runs even when `--compartment-id` is supplied. |
-| `inspect tenancies in tenancy` | `ListRegionSubscriptions` | Automatic subscribed-region discovery. Supplying `--regions` skips this API call. |
 | `read buckets in tenancy` | `ListBuckets`, and optionally `GetBucket` | Bucket inventory; `GetBucket` retrieves missing bucket IDs when `--per-bucket` is selected. `read buckets` includes bucket inspection. |
 | `{OBJECTSTORAGE_NAMESPACE_READ} in tenancy` | `GetNamespace` with `compartment_id=tenant` | Namespace discovery at the start of each selected region. |
 | `read metrics in tenancy` | `SummarizeMetricsData`; `ListMetrics` with `--debug` | Request/error counters and optional metric-definition diagnostics. `read metrics` includes metric inspection. |
@@ -208,7 +210,6 @@ For a restricted report, keep the discovery grants at tenancy scope and restrict
 
 ```text
 Allow group StatsReaders to inspect compartments in tenancy
-Allow group StatsReaders to inspect tenancies in tenancy
 Allow group StatsReaders to {OBJECTSTORAGE_NAMESPACE_READ} in tenancy
 Allow group StatsReaders to read buckets in compartment Production
 Allow group StatsReaders to read metrics in compartment Production
@@ -217,12 +218,12 @@ Allow group StatsReaders to read metrics in compartment Production
 Compartment IAM grants apply to descendants. Select the same scope in the script to avoid querying unrelated compartments:
 
 ```bash
-python3 oci_os_stats.py \
+python3 oci_os_stats.py --regions us-ashburn-1 \
   --compartment-id ocid1.compartment.oc1..REPLACE_ME \
   --include-subcompartments --per-compartment --per-bucket
 ```
 
-Omit `--include-subcompartments` to collect only directly contained buckets. Specifying `--compartment-id` does not bypass the script's initial tenancy-level compartment discovery. If explicit regions are supplied, the `inspect tenancies` grant used for region discovery can be omitted.
+Omit `--include-subcompartments` to collect only directly contained buckets. Specifying `--compartment-id` does not bypass the script's initial tenancy-level compartment discovery.
 
 If bucket IDs from `GetBucket` are not needed, `inspect buckets` is sufficient for `ListBuckets`. With `--per-bucket`, a fallback `GetBucket` call can still produce a warning if the bucket ID was not available from Monitoring. Use `read buckets` for the full bucket-report behavior documented here.
 
@@ -230,7 +231,7 @@ If bucket IDs from `GetBucket` are not needed, `inspect buckets` is sufficient f
 
 | Failure | Result |
 | --- | --- |
-| Compartment discovery, region discovery, or namespace lookup fails | The current script stops; these setup calls are not handled as recoverable compartment errors. |
+| Compartment discovery or namespace lookup fails | The current script stops; these setup calls are not handled as recoverable compartment errors. |
 | Bucket listing fails in one compartment | A warning is recorded. Collection continues, including attempts to query that compartment's metrics. |
 | `GetBucket` fails | A warning is recorded. A bucket ID unavailable from Monitoring remains missing. |
 | A metric query fails | A warning is recorded. Collection continues; affected values are unavailable rather than zero. |
@@ -251,13 +252,15 @@ Allow group StatsReaders to read log-content in tenancy
 
 Scope these grants to the compartments containing the **log groups**, which can differ from the bucket compartments, when tenancy-wide log access is unnecessary. They permit viewing/searching existing logs; they do not enable bucket logging. Broad compartment searches that include Audit logs can also require Audit access; select the bucket access-log groups explicitly to avoid including Audit.
 
+**Region discovery permission is not required:** the collector no longer calls `ListRegionSubscriptions`, so do not add `inspect tenancies in tenancy` solely to run this script. Existing unrelated grants can remain in place.
+
 ## All command-line options
 
 | Option | Default / behavior |
 | --- | --- |
 | `--profile NAME` | OCI API-key profile; default `DEFAULT`. |
 | `--config-file PATH` | OCI configuration file; default `~/.oci/config`. |
-| `--regions REGION [REGION ...]` | Default: subscribed regions with `READY` status. |
+| `--regions REGION [REGION ...]` | **Required.** Collect only from the regions explicitly listed; no default or subscription discovery. |
 | `--compartment-id OCID` | Default: all accessible active compartments, including root. |
 | `--include-subcompartments` | Include descendants; requires `--compartment-id`. |
 | `--per-compartment` | Add compartment statistics. |
@@ -274,7 +277,7 @@ Scope these grants to the compartments containing the **log groups**, which can 
 ## Troubleshooting
 
 ```bash
-python3 oci_os_stats.py --hours 24 --per-bucket --debug
+python3 oci_os_stats.py --regions us-ashburn-1 --hours 24 --per-bucket --debug
 ```
 
 - **No request data:** check the UTC window, selected regions, bucket compartments, available metric definitions, and IAM permissions.
