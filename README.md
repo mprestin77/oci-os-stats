@@ -241,17 +241,6 @@ Runs with recorded warnings still produce reports and exit with status `2`. Warn
 
 The partial-total `*` marker and `metric_coverage` describe known bucket rows only. They cannot detect buckets hidden by missing permissions. An unmarked total or status `0` therefore does not prove tenancy-wide completeness.
 
-### Optional permissions for investigating 404s in Logging
-
-These are separate from running the statistics script. To search enabled bucket access logs, an administrator can grant:
-
-```text
-Allow group StatsReaders to read log-groups in tenancy
-Allow group StatsReaders to read log-content in tenancy
-```
-
-Scope these grants to the compartments containing the **log groups**, which can differ from the bucket compartments, when tenancy-wide log access is unnecessary. They permit viewing/searching existing logs; they do not enable bucket logging. Broad compartment searches that include Audit logs can also require Audit access; select the bucket access-log groups explicitly to avoid including Audit.
-
 **Region discovery permission is not required:** the collector no longer calls `ListRegionSubscriptions`, so do not add `inspect tenancies in tenancy` solely to run this script. Existing unrelated grants can remain in place.
 
 ## All command-line options
